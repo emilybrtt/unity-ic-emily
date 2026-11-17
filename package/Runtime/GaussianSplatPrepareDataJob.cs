@@ -35,6 +35,11 @@ namespace GaussianSplatting.Runtime
         public int spzTotalCount, spzFractionalBits;
 
         [NativeDisableParallelForRestriction] public NativeArray<uint> positions, geometry, colors, sh;
+        
+        // indice (em plyPropOffsets) da primeira propriedade de material, ou -1 se o arquivo nao tem.
+        public int materialProp;
+        [NativeDisableParallelForRestriction] public NativeArray<uint> material;
+
         [WriteOnly] public NativeArray<BatchResult> results;
 
         public void Execute(int batch)
@@ -82,6 +87,8 @@ namespace GaussianSplatting.Runtime
                 geometry[index * 3 + 1] = Half2(splat.scale.x, splat.scale.y);
                 geometry[index * 3 + 2] = Half2(splat.scale.z, splat.opacity);
                 colors[index] = GaussianUtils.PackColorRGB10E2(splat.color);
+                if (materialProp >= 0)
+                    WriteMaterial(src + local * stride, index);
                 if (shCoefficients > 0)
                 {
                     int size = GaussianUtils.GetSHDataSize(shCoefficients);
@@ -119,6 +126,31 @@ namespace GaussianSplatting.Runtime
             for (int c = 0; c < shCoefficients; ++c)
                 coefficients[c] = new float3(PlyFloat(row, 14 + c), PlyFloat(row, 14 + c + shCoefficients), PlyFloat(row, 14 + c + shCoefficients * 2));
             return splat;
+        }
+        // le normal, albedo e rugosidade do PLY do Relightable 3D Gaussian e aplica as mesmas
+        // funcoes de ativacao do scene/gaussian_model.py, para a GPU receber os valores finais:
+        //   normal     = normalize(nx, ny, nz)
+        //   base_color = sigmoid(x) * 0.77 + 0.03
+        //   roughness  = sigmoid(x) * 0.9  + 0.09
+        void WriteMaterial(byte* row, int index)
+        {
+            int p = materialProp;
+            float3 normal = math.normalizesafe(new float3(PlyFloat(row, p), PlyFloat(row, p + 1), PlyFloat(row, p + 2)));
+            float3 albedo = new float3(
+                GaussianUtils.Sigmoid(PlyFloat(row, p + 3)),
+                GaussianUtils.Sigmoid(PlyFloat(row, p + 4)),
+                GaussianUtils.Sigmoid(PlyFloat(row, p + 5))) * 0.77f + 0.03f;
+            float roughness = GaussianUtils.Sigmoid(PlyFloat(row, p + 6)) * 0.9f + 0.09f;
+
+            int o = index * GaussianSplatData.kMaterialStride;
+            material[o + 0] = math.asuint(normal.x);
+            material[o + 1] = math.asuint(normal.y);
+            material[o + 2] = math.asuint(normal.z);
+            material[o + 3] = math.asuint(albedo.x);
+            material[o + 4] = math.asuint(albedo.y);
+            material[o + 5] = math.asuint(albedo.z);
+            material[o + 6] = math.asuint(roughness);
+            material[o + 7] = 0;
         }
 
         // SPZ stores separate packed streams: positions, alpha, color, scale, rotation, SH.

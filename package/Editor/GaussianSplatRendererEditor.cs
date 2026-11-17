@@ -18,6 +18,7 @@ namespace GaussianSplatting.Editor
         SerializedProperty m_PropSplatScale;
         SerializedProperty m_PropOpacityScale;
         SerializedProperty m_PropSHOrder;
+        SerializedProperty m_PropMaterialView;
 
         readonly Utils.FilePickerControl m_FilePicker = new();
         int m_CameraIndex = 0;
@@ -29,6 +30,7 @@ namespace GaussianSplatting.Editor
             m_PropSplatScale = serializedObject.FindProperty("m_SplatScale");
             m_PropOpacityScale = serializedObject.FindProperty("m_OpacityScale");
             m_PropSHOrder = serializedObject.FindProperty("m_SHOrder");
+            m_PropMaterialView = serializedObject.FindProperty("m_MaterialView");
         }
 
         public override bool RequiresConstantRepaint() => ((GaussianSplatRenderer)target).isLoading || m_WasLoading;
@@ -69,6 +71,7 @@ namespace GaussianSplatting.Editor
             EditorGUILayout.PropertyField(m_PropSplatScale);
             EditorGUILayout.PropertyField(m_PropOpacityScale);
             EditorGUILayout.PropertyField(m_PropSHOrder);
+            EditorGUILayout.PropertyField(m_PropMaterialView);
 
             EditorGUILayout.Space();
             bool validAndEnabled = gs && gs.enabled && gs.gameObject.activeInHierarchy && !string.IsNullOrWhiteSpace(sourcePath);
@@ -94,6 +97,7 @@ namespace GaussianSplatting.Editor
                     EditorGUILayout.Space();
                     EditorGUILayout.LabelField("Splats", $"{gs.splatCount:N0}");
                     EditorGUILayout.LabelField("SH Degree", gs.sourceSHDegree.ToString());
+                    EditorGUILayout.LabelField("Material", gs.hasMaterial ? "normal, albedo, roughness" : "none");
                     int coefficients = (gs.sourceSHDegree + 1) * (gs.sourceSHDegree + 1) - 1;
                     int stride = 28 + GaussianUtils.GetSHDataSize(coefficients);
                     EditorGUILayout.LabelField("Splat Data", $"{stride} bytes/splat ({(long)stride * gs.splatCount / (1024.0 * 1024):N1} MiB)");

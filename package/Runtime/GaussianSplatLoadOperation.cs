@@ -166,7 +166,7 @@ namespace GaussianSplatting.Runtime
             else if (a == 'p' && b == 'l') // PLY
             {
                 m_Ply = PLYFileReader.ReadHeader(m_Stream);
-                m_Data = new GaussianSplatData(m_Ply.count, m_Ply.degree);
+                m_Data = new GaussianSplatData(m_Ply.count, m_Ply.degree, m_Ply.material);
                 int capacity = math.min(m_Ply.count, math.max(1, 64 * 1024 * 1024 / m_Ply.stride));
                 m_Input = new NativeArray<byte>(capacity * m_Ply.stride, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
                 StartConversion();
@@ -263,7 +263,9 @@ namespace GaussianSplatting.Runtime
                 input = m_Input, plyPropOffsets = m_Ply.properties, stride = m_Ply.stride,
                 count = m_BatchLength, outputStart = m_Start, shCoefficients = m_Data.shCoefficients,
                 spzVersion = m_Spz.version, spzTotalCount = m_Data.count, spzFractionalBits = m_Spz.fractionalBits,
-                positions = m_Data.positions, geometry = m_Data.geometry, colors = m_Data.colors, sh = m_Data.sh, results = m_Results
+                positions = m_Data.positions, geometry = m_Data.geometry, colors = m_Data.colors, sh = m_Data.sh, results = m_Results,
+                // o material vem depois das 14 propriedades fixas e dos 3 * shCoefficients f_rest
+                materialProp = m_Data.hasMaterial ? 14 + m_Data.shCoefficients * 3 : -1, material = m_Data.material
             };
             m_Job = job.Schedule(batches, 1, dependency);
             JobHandle.ScheduleBatchedJobs();

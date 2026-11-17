@@ -490,7 +490,16 @@ namespace GaussianSplatting.Runtime
         [Tooltip("Additional scaling factor for opacity")]
         public float m_OpacityScale = 1.0f;
         [Range(0, 3)] [Tooltip("Spherical Harmonics order to use")]
-        public int m_SHOrder = 3;
+                public int m_SHOrder = 3;
+
+        // mostra um dos atributos de material no lugar da cor (so para conferir o que foi carregado)
+        public enum MaterialView { Off, Albedo, Normal, Roughness }
+        [Tooltip("Show a material attribute instead of the trained color (needs a Relightable 3D Gaussian PLY)")]
+        public MaterialView m_MaterialView = MaterialView.Off;
+        GraphicsBuffer m_GpuMaterialData;
+        bool m_HasMaterial;
+        public bool hasMaterial => m_HasMaterial;
+
         int m_SplatCount;
         GraphicsBuffer m_GpuPosData;
         GraphicsBuffer m_GpuOtherData;
@@ -519,6 +528,8 @@ namespace GaussianSplatting.Runtime
             public static readonly int SplatOther = Shader.PropertyToID("_SplatOther");
             public static readonly int SplatSH = Shader.PropertyToID("_SplatSH");
             public static readonly int SplatColor = Shader.PropertyToID("_SplatColor");
+            public static readonly int SplatMaterial = Shader.PropertyToID("_SplatMaterial");
+            public static readonly int MaterialView = Shader.PropertyToID("_MaterialView");
             public static readonly int SHCoefficients = Shader.PropertyToID("_SHCoefficients");
             public static readonly int SplatViewData = Shader.PropertyToID("_SplatViewData");
             public static readonly int SplatOffset = Shader.PropertyToID("_SplatOffset");
@@ -571,6 +582,8 @@ namespace GaussianSplatting.Runtime
             m_GpuOtherData = Upload(data.geometry, "GaussianOtherData");
             m_GpuColorData = Upload(data.colors, "GaussianColorData");
             m_GpuSHData = Upload(data.sh, "GaussianSHData");
+            m_GpuMaterialData = Upload(data.material, "GaussianMaterialData");
+            m_HasMaterial = data.hasMaterial;
             EnsureRegistered();
             GaussianSplatRenderSystem.instance.InvalidateTemporalHistory();
         }
@@ -642,6 +655,8 @@ namespace GaussianSplatting.Runtime
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_GpuOtherData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSH, m_GpuSHData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatColor, m_GpuColorData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatMaterial, m_GpuMaterialData);
+            cmb.SetComputeIntParam(cs, Props.MaterialView, m_HasMaterial ? (int)m_MaterialView : 0);
 
             cmb.SetComputeIntParam(cs, Props.SHCoefficients, m_SHCoefficients);
             cmb.SetComputeIntParam(cs, Props.SplatCount, m_SplatCount);
@@ -669,6 +684,8 @@ namespace GaussianSplatting.Runtime
             DisposeBuffer(ref m_GpuPosData);
             DisposeBuffer(ref m_GpuOtherData);
             DisposeBuffer(ref m_GpuSHData);
+            DisposeBuffer(ref m_GpuMaterialData);
+            m_HasMaterial = false;
 
             m_SplatCount = 0;
         }

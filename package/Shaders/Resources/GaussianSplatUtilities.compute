@@ -52,6 +52,28 @@ float _SplatOpacityScale;
 uint _SHOrder;
 uint _SHOnly;
 
+// material por Gaussiana (Relightable 3D Gaussian). 8 floats = 32 bytes por splat:
+// normal xyz, albedo rgb, rugosidade, 1 sobrando. Os valores ja chegam ativados.
+ByteAddressBuffer _SplatMaterial;
+uint _MaterialView; // 0 = cor do treino, 1 = albedo, 2 = normal, 3 = rugosidade
+
+struct SplatMaterial
+{
+    float3 normal;   // no espaco do objeto (o mesmo do PLY)
+    float3 albedo;
+    float roughness;
+};
+
+SplatMaterial LoadSplatMaterial(uint idx)
+{
+    SplatMaterial m;
+    uint addr = idx * 32;
+    m.normal = asfloat(_SplatMaterial.Load3(addr));
+    m.albedo = asfloat(_SplatMaterial.Load3(addr + 12));
+    m.roughness = asfloat(_SplatMaterial.Load(addr + 24));
+    return m;
+}
+
 void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
 {
     #if 0 // does not quite give the correct results?
@@ -165,6 +187,15 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 
             half4 col;
             col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
+            // troca a cor por um atributo do material, para conferir o carregamento
+            if (_MaterialView != 0)
+            {
+                SplatMaterial mat = LoadSplatMaterial(idx);
+                if (_MaterialView == 1) col.rgb = mat.albedo;
+                else if (_MaterialView == 2) col.rgb = mat.normal * 0.5 + 0.5; // [-1,1] -> [0,1]
+                else col.rgb = mat.roughness;
+            }
+            
             col.a = min(splat.opacity * opacityScale, 65000);
             view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
             view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);

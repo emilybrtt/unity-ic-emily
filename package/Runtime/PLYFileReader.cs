@@ -13,6 +13,7 @@ namespace GaussianSplatting.Runtime
         public struct Header : IDisposable
         {
             public int count, degree, stride;
+            public bool material; // normal, albedo e rugosidade
             public NativeArray<int> properties;
 
             public void Dispose()
@@ -83,15 +84,22 @@ namespace GaussianSplatting.Runtime
             var offsets = new int[types.Count];
             for (int i = 0; i < types.Count; ++i) { offsets[i] = stride; stride += ScalarSize(types[i]); }
             if (stream.Length - stream.Position < (long)count * stride) throw new EndOfStreamException("Truncated PLY vertex data");
-            var properties = new NativeArray<int>(14 + rest, Allocator.Persistent);
+            // propriedades de material gravadas
+            // um PLY comum de 3DGS nao tem base_color/roughness e continua carregando como antes
+            string[] materialNames = { "nx", "ny", "nz", "base_color_0", "base_color_1", "base_color_2", "roughness" };
+            bool material = Array.TrueForAll(materialNames, n => { int k = names.IndexOf(n); return k >= 0 && types[k] == "float"; });
+            var properties = new NativeArray<int>(14 + rest + (material ? materialNames.Length : 0), Allocator.Persistent);
             try
             {
-                for (int i = 0; i < properties.Length; ++i)
+                for (int i = 0; i < 14 + rest; ++i)
                 {
                     int property = Require(i < 14 ? required[i] : "f_rest_" + (i - 14));
                     properties[i] = offsets[property];
                 }
-                return new Header { count = count, degree = degree, stride = stride, properties = properties };
+                // os deslocamentos do material ficam no fim da lista, depois dos f_rest
+                for (int i = 0; material && i < materialNames.Length; ++i)
+                    properties[14 + rest + i] = offsets[names.IndexOf(materialNames[i])];
+                return new Header { count = count, degree = degree, stride = stride, material = material, properties = properties };
             }
             catch { properties.Dispose(); throw; }
         }
