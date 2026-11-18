@@ -493,12 +493,21 @@ namespace GaussianSplatting.Runtime
                 public int m_SHOrder = 3;
 
         // mostra um dos atributos de material no lugar da cor (so para conferir o que foi carregado)
-        public enum MaterialView { Off, Albedo, Normal, Roughness }
+        public enum MaterialView { Off, Albedo, Normal, Roughness, PointLights }
         [Tooltip("Show a material attribute instead of the trained color (needs a Relightable 3D Gaussian PLY)")]
         public MaterialView m_MaterialView = MaterialView.Off;
         GraphicsBuffer m_GpuMaterialData;
         bool m_HasMaterial;
         public bool hasMaterial => m_HasMaterial;
+        
+        // luzes pontuais (porta do relight_points.py). Na formula, I * cor = Light.intensity * Light.color
+        public const int kMaxPointLights = 8;
+        [Tooltip("Point lights used by the PointLights view (max 8)")]
+        public Light[] m_PointLights = Array.Empty<Light>();
+        [Range(0f, 1f)] [Tooltip("Ambient term: ambient * albedo (relight_points.py --ambient)")]
+        public float m_Ambient = 0.03f;
+        readonly Vector4[] m_LightPos = new Vector4[kMaxPointLights];
+        readonly Vector4[] m_LightColor = new Vector4[kMaxPointLights];
 
         int m_SplatCount;
         GraphicsBuffer m_GpuPosData;
@@ -530,6 +539,10 @@ namespace GaussianSplatting.Runtime
             public static readonly int SplatColor = Shader.PropertyToID("_SplatColor");
             public static readonly int SplatMaterial = Shader.PropertyToID("_SplatMaterial");
             public static readonly int MaterialView = Shader.PropertyToID("_MaterialView");
+            public static readonly int LightPos = Shader.PropertyToID("_LightPos");
+            public static readonly int LightColor = Shader.PropertyToID("_LightColor");
+            public static readonly int LightCount = Shader.PropertyToID("_LightCount");
+            public static readonly int Ambient = Shader.PropertyToID("_Ambient");
             public static readonly int SHCoefficients = Shader.PropertyToID("_SHCoefficients");
             public static readonly int SplatViewData = Shader.PropertyToID("_SplatViewData");
             public static readonly int SplatOffset = Shader.PropertyToID("_SplatOffset");
@@ -734,6 +747,24 @@ namespace GaussianSplatting.Runtime
             cmb.SetComputeFloatParam(cs, Props.SplatOpacityScale, m_OpacityScale);
             cmb.SetComputeIntParam(cs, Props.SHOrder, m_SHOrder);
             cmb.SetComputeIntParam(cs, Props.SHOnly, options.m_SHOnly ? 1 : 0);
+            
+            // posicao das luzes no espaco do objeto (o mesmo do PLY e das normais), recalculada
+            // a cada quadro: mover uma luz na cena muda a iluminacao na hora
+            int lightCount = 0;
+            foreach (var l in m_PointLights)
+            {
+                if (lightCount == kMaxPointLights) break;
+                if (!l || !l.isActiveAndEnabled) continue;
+                Vector3 p = matW2O.MultiplyPoint3x4(l.transform.position);
+                Color c = l.color.linear * l.intensity;
+                m_LightPos[lightCount] = new Vector4(p.x, p.y, p.z, 0);
+                m_LightColor[lightCount] = new Vector4(c.r, c.g, c.b, 0);
+                ++lightCount;
+            }
+            cmb.SetComputeVectorArrayParam(cs, Props.LightPos, m_LightPos);
+            cmb.SetComputeVectorArrayParam(cs, Props.LightColor, m_LightColor);
+            cmb.SetComputeIntParam(cs, Props.LightCount, lightCount);
+            cmb.SetComputeFloatParam(cs, Props.Ambient, m_Ambient);
 
             cs.GetKernelThreadGroupSizes(kKernelCalcViewData, out uint gsX, out _, out _);
             cmb.DispatchCompute(cs, kKernelCalcViewData, (m_SplatCount + (int)gsX - 1)/(int)gsX, 1, 1);
@@ -778,7 +809,40 @@ namespace GaussianSplatting.Runtime
             }
             catch (Exception e) { LoadFailed(e); }
         }
-
+                // IC: cria as tres luzes RGB padrao do relight_points.py (DEFAULT_LIGHTS: raio 4, altura 3,
+        // angulos 330/90/210, I = 60) como filhas deste objeto. A posicao local de um filho esta no
+        // espaco do objeto, entao e a mesma coordenada do R3DG (z para cima).
+        [ContextMenu("IC: Criar luzes RGB padrao")]
+        void CreateDefaultRGBLights()
+        {
+            var cfg = new (string name, Color color, float angleDeg)[]
+            {
+                ("Luz R", Color.red, 330f), ("Luz G", Color.green, 90f), ("Luz B", Color.blue, 210f)
+            };
+#if UNITY_EDITOR
+            UnityEditor.Undo.RecordObject(this, "IC: Criar luzes RGB padrao");
+#endif
+            var lights = new Light[cfg.Length];
+            for (int i = 0; i < cfg.Length; ++i)
+            {
+                var go = new GameObject(cfg[i].name);
+#if UNITY_EDITOR
+                UnityEditor.Undo.RegisterCreatedObjectUndo(go, "IC: Criar luzes RGB padrao");
+#endif
+                go.transform.SetParent(transform, false);
+                float a = cfg[i].angleDeg * Mathf.Deg2Rad;
+                go.transform.localPosition = new Vector3(4f * Mathf.Cos(a), 4f * Mathf.Sin(a), 3f);
+                var l = go.AddComponent<Light>();
+                l.type = LightType.Point;
+                l.color = cfg[i].color;
+                l.intensity = 60f;
+                l.range = 20f;
+                lights[i] = l;
+            }
+            m_PointLights = lights;
+            m_MaterialView = MaterialView.PointLights;
+        }
+        
         public void ActivateCamera(int index)
         {
             Camera mainCam = Camera.main;

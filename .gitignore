@@ -26,3 +26,4 @@
 /projects/**/obj/*
 *.sln.DotSettings.user
 projects/GaussianExample/Assets/StreamingAssets/**
+projects/*/Assets/StreamingAssets/

@@ -19,6 +19,8 @@ namespace GaussianSplatting.Editor
         SerializedProperty m_PropOpacityScale;
         SerializedProperty m_PropSHOrder;
         SerializedProperty m_PropMaterialView;
+        SerializedProperty m_PropPointLights;
+        SerializedProperty m_PropAmbient;
 
         readonly Utils.FilePickerControl m_FilePicker = new();
         int m_CameraIndex = 0;
@@ -31,6 +33,8 @@ namespace GaussianSplatting.Editor
             m_PropOpacityScale = serializedObject.FindProperty("m_OpacityScale");
             m_PropSHOrder = serializedObject.FindProperty("m_SHOrder");
             m_PropMaterialView = serializedObject.FindProperty("m_MaterialView");
+            m_PropPointLights = serializedObject.FindProperty("m_PointLights");
+            m_PropAmbient = serializedObject.FindProperty("m_Ambient");
         }
 
         public override bool RequiresConstantRepaint() => ((GaussianSplatRenderer)target).isLoading || m_WasLoading;
@@ -72,6 +76,11 @@ namespace GaussianSplatting.Editor
             EditorGUILayout.PropertyField(m_PropOpacityScale);
             EditorGUILayout.PropertyField(m_PropSHOrder);
             EditorGUILayout.PropertyField(m_PropMaterialView);
+            if (m_PropMaterialView.enumValueIndex == (int)GaussianSplatRenderer.MaterialView.PointLights)
+            {
+                EditorGUILayout.PropertyField(m_PropPointLights, true);
+                EditorGUILayout.PropertyField(m_PropAmbient);
+            }
 
             EditorGUILayout.Space();
             bool validAndEnabled = gs && gs.enabled && gs.gameObject.activeInHierarchy && !string.IsNullOrWhiteSpace(sourcePath);

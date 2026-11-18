@@ -74,6 +74,67 @@ SplatMaterial LoadSplatMaterial(uint idx)
     return m;
 }
 
+// ---------------------------------------------------------------------------------------------
+// luzes pontuais. Porta do shade_point_lights (relight_points.py)
+// ---------------------------------------------------------------------------------------------
+#define IC_PI 3.14159265
+#define MAX_POINT_LIGHTS 8
+float4 _LightPos[MAX_POINT_LIGHTS];   // xyz: posicao da luz no espaco do objeto
+float4 _LightColor[MAX_POINT_LIGHTS]; // rgb: cor * intensidade (I)
+uint _LightCount;
+float _Ambient;
+
+// Porta do GGX_specular de gaussian_renderer/neilf.py, para uma luz, com as mesmas constantes
+float GGXSpecular(float3 N, float3 V, float3 L, float roughness, float fresnel)
+{
+    float3 H = normalize(L + V);
+    N = dot(V, N) >= 0 ? N : -N;               // N = N * sign(NoV): vira a normal para a camera
+    float NoL = clamp(dot(N, L), 1e-6, 1);
+    float NoV = clamp(dot(N, V), 1e-6, 1);
+    float NoH = clamp(dot(N, H), 1e-6, 1);
+    float VoH = clamp(dot(V, H), 1e-6, 1);
+
+    float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+    float k = (alpha + 2 * roughness + 1.0) / 8.0;
+    float FMi = ((-5.55473) * VoH - 6.98316) * VoH;
+    float frac0 = fresnel + (1 - fresnel) * exp2(FMi);   // torch.pow(2.0, FMi)
+    float nom0 = NoH * NoH * (alpha2 - 1) + 1;
+    float nom1 = NoV * (1 - k) + k;
+    float nom2 = NoL * (1 - k) + k;
+    float nom = clamp(4 * IC_PI * nom0 * nom0 * nom1 * nom2, 1e-6, 4 * IC_PI);
+    return frac0 * alpha2 / nom;
+}
+
+// L = sum_k (f_d + f_s) * I_k / |p_k - x|^2 * max(n.l, 0) * V   +   ambient * albedo
+// Por enquanto V = 1 (sem sombra), como o --no_shadow do Python. Tudo no espaco do objeto.
+// Devolve cor linear, antes do sRGB.
+float3 ShadePointLights(float3 pos, float3 viewDir, SplatMaterial m)
+{
+    float3 color = _Ambient * m.albedo;              // luz ambiente fraca
+    float3 f_d = m.albedo / IC_PI;                   // difusa (Lambert)
+    for (uint k = 0; k < _LightCount; ++k)
+    {
+        float3 toLight = _LightPos[k].xyz - pos;
+        float dist2 = dot(toLight, toLight);
+        float3 l = toLight * rsqrt(dist2);           // direcao normalizada ate a luz
+        float n_l = max(dot(m.normal, l), 0);
+        float f_s = GGXSpecular(m.normal, viewDir, l, m.roughness, 0.04);
+        float3 radiance = _LightColor[k].rgb / dist2;
+        color += (f_d + f_s) * radiance * n_l;
+    }
+    return color;
+}
+
+// Mesmo que rgb_to_srgb de utils/graphics_utils.py, com o clip em [0, 1].
+// O plugin espera cor em sRGB: ele mistura os splats em sRGB e so converte para linear no fim.
+float3 LinearToSRGB(float3 c)
+{
+    float3 lo = 12.92 * c;
+    float3 hi = 1.055 * pow(max(c, 0.0031308), 1.0 / 2.4) - 0.055;
+    return saturate(lerp(lo, hi, step(0.0031308, c)));
+}
+
 void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
 {
     #if 0 // does not quite give the correct results?
@@ -193,7 +254,8 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
                 SplatMaterial mat = LoadSplatMaterial(idx);
                 if (_MaterialView == 1) col.rgb = mat.albedo;
                 else if (_MaterialView == 2) col.rgb = mat.normal * 0.5 + 0.5; // [-1,1] -> [0,1]
-                else col.rgb = mat.roughness;
+                else if (_MaterialView == 3) col.rgb = mat.roughness;
+                else col.rgb = LinearToSRGB(ShadePointLights(splat.pos, objViewDir, mat));
             }
             
             col.a = min(splat.opacity * opacityScale, 65000);
